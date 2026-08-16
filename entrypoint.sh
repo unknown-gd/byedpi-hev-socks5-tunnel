@@ -1,16 +1,24 @@
 #!/bin/sh
+set -eu
 
 TUN="${TUN:-tun0}"
 MTU="${MTU:-9000}"
 IPV4="${IPV4:-198.18.0.1}"
-IPV6="${IPV6:-}"
-
+IPV6="${IPV6:-fc00::1}"
 MARK="${MARK:-438}"
-
 SOCKS5_UDP_MODE="${SOCKS5_UDP_MODE:-udp}"
 OTHER_ROUTE="${OTHER_ROUTE:-}"
 LOG_LEVEL="${LOG_LEVEL:-warn}"
-GATEWAY="${GATEWAY:-$(ip route | awk '/default/ && /eth0/ {print $3}')}"
+IFACE="${IFACE:-eth0}"
+
+# Single, deterministic gateway lookup: first matching line only.
+GATEWAY="${GATEWAY:-$(ip route | awk -v i="$IFACE" '$0 ~ /^default/ && $0 ~ i {print $3; exit}')}"
+
+if [ -z "${GATEWAY:-}" ]; then
+  echo "ERROR: could not determine default gateway for interface '${IFACE}'." >&2
+  echo "       Set GATEWAY explicitly (e.g. GATEWAY=192.168.1.1) or IFACE if not eth0." >&2
+  exit 1
+fi
 
 config_file() {
   cat > /hs5t.yml << EOF
@@ -31,30 +39,78 @@ EOF
 }
 
 config_route() {
-  echo "#!/bin/sh" > /route.sh
+  {
+    echo "#!/bin/sh"
+    echo "set -e"
+
+    # IPv4 uid 1000 exemption
+    echo "ip rule add from all uidrange 1000-1000 lookup 110 pref 28000"
+    echo "ip route flush table 110"
+    echo "ip route add default via ${GATEWAY} dev ${IFACE} metric 50 table 110"
+
+    # IPv4 default routing through tunnel
+    echo "ip route del default || true"
+    echo "ip route add default via ${IPV4} dev ${TUN} metric 1"
+    echo "ip route add default via ${GATEWAY} dev ${IFACE} metric 10"
+
+    # IPv4 exclude local networks
+    echo "ip route add 10.0.0.0/8 via ${GATEWAY} dev ${IFACE}"
+    echo "ip route add 172.16.0.0/12 via ${GATEWAY} dev ${IFACE}"
+    echo "ip route add 192.168.0.0/16 via ${GATEWAY} dev ${IFACE}"
+
+    # IPv6 uid 1000 exemption
+    echo "ip -6 rule add from all uidrange 1000-1000 lookup 110 pref 28000"
+    echo "ip -6 route flush table 110 || true"
+    echo "ip -6 route add default via ${GATEWAY} dev ${IFACE} metric 50 table 110"
+
+    # IPv6 default routing through tunnel
+    echo "ip -6 route del default || true"
+    echo "ip -6 route add default via ${IPV6} dev ${TUN} metric 1"
+    echo "ip -6 route add default via ${GATEWAY} dev ${IFACE} metric 10"
+
+    # IPv6 exclude local networks
+    echo "ip -6 route add fe80::/10 via ${GATEWAY} dev ${IFACE}"
+    echo "ip -6 route add ::1/128 via ${GATEWAY} dev ${IFACE}"
+
+    if [ -n "${OTHER_ROUTE}" ]; then
+      echo "${OTHER_ROUTE}"
+    fi
+
+    echo "echo 1 > /success"
+  } > /route.sh
+
   chmod +x /route.sh
-  echo "ip rule add from all uidrange 1000-1000 lookup 110 pref 28000" >> /route.sh
-  echo "ip route flush table 110" >> /route.sh
-  echo "ip route add default via $GATEWAY dev eth0 metric 50 table 110" >> /route.sh
-  echo "ip route del default" >> /route.sh
-  echo "ip route add default via ${IPV4} dev ${TUN} metric 1" >> /route.sh
-  echo "ip route add default via $GATEWAY dev eth0 metric 10" >> /route.sh
-  # exclude local network
-  echo "ip route add 10.0.0.0/8 via $GATEWAY dev eth0" >> /route.sh
-  echo "ip route add 172.16.0.0/12 via $GATEWAY dev eth0" >> /route.sh
-  echo "ip route add 192.168.0.0/16 via $GATEWAY dev eth0" >> /route.sh
-  echo "${OTHER_ROUTE}" >> /route.sh
 }
 
 run() {
   config_file
   config_route
-  echo "echo 1 > /success" >> /route.sh
-  echo "ByeDPI v.$(ciadpi --version)"
-  echo "hev-socks5-tunnel $(hev-socks5-tunnel --version | head -n 2 | tail -n 1)"
-  hev-socks5-tunnel /hs5t.yml &
-  su - ciadpi -c "ciadpi $*"
 
+  echo "ByeDPI v.$(ciadpi --version)"
+  echo "hev-socks5-tunnel $(hev-socks5-tunnel --version | sed -n '2p')"
+
+  hev-socks5-tunnel /hs5t.yml &
+  TUNNEL_PID=$!
+
+  # Give the tunnel a moment to come up and verify it didn't die immediately.
+  sleep 1
+  if ! kill -0 "$TUNNEL_PID" 2>/dev/null; then
+    echo "ERROR: hev-socks5-tunnel exited immediately, aborting." >&2
+    exit 1
+  fi
+
+  # Run ciadpi in the foreground; safely pass through args without
+  # word-splitting/injection risk (was: `su - ciadpi -c "ciadpi $*"`).
+  su - ciadpi -s /bin/sh -c 'exec ciadpi "$@"' -- "$@"
+  CIADPI_EXIT=$?
+
+  # If the tunnel died in the background while ciadpi was running,
+  # surface that rather than reporting a misleading clean exit.
+  if ! kill -0 "$TUNNEL_PID" 2>/dev/null; then
+    echo "WARNING: hev-socks5-tunnel is no longer running." >&2
+  fi
+
+  exit "$CIADPI_EXIT"
 }
 
-run "$@" || exit 1
+run "$@"
