@@ -1,4 +1,4 @@
-FROM alpine:latest AS build
+FROM docker.io/alpine:latest AS build
 
 RUN apk add --no-cache curl jq
 ARG TARGETARCH
@@ -22,19 +22,19 @@ RUN for archive in *.tar.gz; do tar -xzvf "$archive" -C .; done && \
     mv ciadpi-x86_64 ciadpi-amd64 && \
     chmod -R 777 .
 
-#make work structure
+# Make work structure
 RUN mkdir -p build/usr/bin && \
     mv ciadpi-${TARGETARCH} build/usr/bin/ciadpi && \
     mv hev-socks5-tunnel-linux-${TARGETARCH} build/usr/bin/hev-socks5-tunnel
-    
+
 COPY --chmod=755 entrypoint.sh build/
 
-FROM alpine:latest
+FROM docker.io/alpine:latest
 
 COPY --from=build /tmp/build /
 
-RUN apk update && apk add --no-cache iproute2 && \
+RUN apk add --no-cache iproute2 && \
     # Create user with UID 1000
     adduser -u 1000 -D -s /bin/sh ciadpi
 
-ENTRYPOINT ["/entrypoint.sh"]   
+ENTRYPOINT ["/entrypoint.sh"]
