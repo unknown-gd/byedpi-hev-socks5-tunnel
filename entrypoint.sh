@@ -13,9 +13,11 @@ LOG_LEVEL="${LOG_LEVEL:-warn}"
 GATEWAY="${GATEWAY:-$(ip route | awk '/^default/ {print $3; exit}')}"
 IFACE="${IFACE:-$(ip route | awk '/^default/ {print $5; exit}')}"
 
-if [ -z "${GATEWAY:-}" ]; then
-  echo "ERROR: could not determine default gateway for interface '${IFACE}'." >&2
-  echo "       Set GATEWAY explicitly (e.g. GATEWAY=192.168.1.1) or IFACE." >&2
+if [ -z "${GATEWAY:-}" ] || [ -z "${IFACE:-}" ]; then
+  echo "ERROR: could not auto-detect default gateway/interface." >&2
+  echo "       Current routes:" >&2
+  ip route >&2 || true
+  echo "       Set GATEWAY and IFACE explicitly, e.g. GATEWAY=192.168.1.1 IFACE=veth1" >&2
   exit 1
 fi
 
@@ -44,7 +46,7 @@ config_route() {
 
     # IPv4 uid 1000 exemption
     echo "ip rule add from all uidrange 1000-1000 lookup 110 pref 28000"
-    echo "ip route flush table 110"
+    echo "ip route flush table 110 || true"
     echo "ip route add default via ${GATEWAY} dev ${IFACE} metric 50 table 110"
 
     # IPv4 default routing through tunnel
