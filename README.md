@@ -1,36 +1,43 @@
-### [Pull from Docker Hub](https://hub.docker.com/r/wiktorbgu/byedpi-hev-socks5-tunnel)
+## RouterOS Setup
 
-## Mikrotik settings  
-### Подробная инструкция настройки Mikrotik [habr.ru](https://habr.com/ru/articles/838452/) или [web.archive.org](https://web.archive.org/web/*/https://habr.com/ru/articles/838452/) (на обоих ресурсах доступно только из-за границы)
+Full manual from original creator available on [habr.ru](https://habr.com/ru/articles/838452/) and [web.archive.org](https://web.archive.org/web/*/https://habr.com/ru/articles/838452/).
+
 ---
 
-```
-/interface/bridge add name=Bridge-Docker port-cost-mode=short
-/ip/address add address=192.168.254.1/24 interface=Bridge-Docker network=192.168.254.0
-/interface/veth add address=192.168.254.2/24 gateway=192.168.254.1 name=BYEDPI-TUN
-/interface/bridge/port add bridge=Bridge-Docker interface=BYEDPI-TUN
-```
-
-### change path /usb1 to your actual path
-```
-/container/config set registry-url=https://registry-1.docker.io tmpdir=/usb1/docker/pull 
-
-/container/add remote-image=wiktorbgu/byedpi-hev-socks5-tunnel:mikro interface=BYEDPI-TUN cmd="--disorder 1 --auto=torst --tlsrec 1+s" root-dir=/usb1/docker/byedpi-hev-socks5-tunnel-mikro start-on-boot=yes
-```
-### Table routing
-
-```
-/routing/table add disabled=no fib name=dpi_mark 
-
-/ip/route add disabled=no distance=1 dst-address=0.0.0.0/0 gateway=192.168.254.2%Bridge-Docker pref-src="" routing-table=dpi_mark scope=30 suppress-hw-offload=no target-scope=10
-```
-### Route address list to BYEDPI TUNNEL
-
+```routeros
+/interface/bridge add name=byedpi-bridge port-cost-mode=short
+/ip/address add address=192.168.254.1/24 interface=byedpi-bridge network=192.168.254.0
+/interface/veth add address=192.168.254.2/24 gateway=192.168.254.1 name=byedpi-tunnel
+/interface/bridge/port add bridge=byedpi-bridge interface=byedpi-tunnel
 ```
 
+### Docker Registry & Container
+
+**Change path `/usb1` to your actual path!**
+
+Also, I highly recommend to find best for your case run command (`cmd`), I use for this mobile [ByeByeDPI](https://github.com/romanvht/ByeByeDPI) application, its scanner is one of the best for scanning DPI restrictions that I have found.
+
+```routeros
+/container/config set registry-url=https://ghcr.io tmpdir=/usb1/docker/pull
+
+/container/add remote-image=ghcr.io/unknown-gd/byedpi-hev-socks5-tunnel:latest interface=byedpi-tunnel cmd="--disorder 1 --auto=torst --tlsrec 1+s" root-dir=/usb1/docker/byedpi-hev-socks5-tunnel-mikro start-on-boot=yes
+```
+
+### Routing Table
+
+```routeros
+/routing/table add disabled=no fib name=dpi_mark
+/ip/route add disabled=no distance=1 dst-address=0.0.0.0/0 gateway=192.168.254.2%byedpi-bridge pref-src="" routing-table=dpi_mark scope=30 suppress-hw-offload=no target-scope=10
+```
+
+### Route address list over ByeDPI Tunnel
+
+```routeros
 /ip firewall mangle add action=mark-routing chain=prerouting comment="List DNS FWD route to byedpi tunnel" dst-address-list=za_dpi_FWD in-interface-list=LAN new-routing-mark=dpi_mark passthrough=no
 ```
-### RUN container and enjoy! =)
-```
-/container start [find interface=BYEDPI-TUN]
+
+### Run container and enjoy, good luck!
+
+```routeros
+/container start [find interface=byedpi-tunnel]
 ```
