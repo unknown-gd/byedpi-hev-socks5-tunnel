@@ -19,22 +19,21 @@ Also, I highly recommend to find best for your case run command (`cmd`), I use f
 
 ```routeros
 /container/config set registry-url=https://ghcr.io tmpdir=/usb1/docker/pull
-
-/container/add remote-image=ghcr.io/unknown-gd/byedpi-hev-socks5-tunnel:latest interface=byedpi-tunnel cmd="--disorder 1 --auto=torst --tlsrec 1+s" root-dir=/usb1/docker/byedpi-hev-socks5-tunnel-mikro start-on-boot=yes
+/container/add remote-image=ghcr.io/unknown-gd/byedpi-hev-socks5-tunnel:latest interface=byedpi-tunnel cmd="--disorder 1 --auto=torst --tlsrec 1+s" root-dir=/usb1/docker/byedpi-tunnel start-on-boot=yes
 ```
 
 ### Routing Table
 
-```routeros
-/routing/table add disabled=no fib name=dpi_mark
-/ip/route add disabled=no distance=1 dst-address=0.0.0.0/0 gateway=192.168.254.2%byedpi-bridge pref-src="" routing-table=dpi_mark scope=30 suppress-hw-offload=no target-scope=10
+````routeros
+/routing/table add disabled=no fib name=bdpit-mark
+/ip/route add disabled=no distance=1 dst-address=0.0.0.0/0 gateway=192.168.254.2%byedpi-bridge routing-table=bdpit-mark scope=30 target-scope=10 comment="ByeDPI Tunnel"
 ```
 
 ### Route address list over ByeDPI Tunnel
 
 ```routeros
-/ip firewall mangle add action=mark-routing chain=prerouting comment="List DNS FWD route to byedpi tunnel" dst-address-list=za_dpi_FWD in-interface-list=LAN new-routing-mark=dpi_mark passthrough=no
-```
+/ip firewall mangle add action=mark-routing chain=prerouting comment="List DNS FWD route to ByeDPI Tunnel" dst-address-list=blocked-addresses in-interface-list=LAN new-routing-mark=bdpit-mark passthrough=no
+````
 
 ### Run container and enjoy, good luck!
 

@@ -9,14 +9,13 @@ MARK="${MARK:-438}"
 SOCKS5_UDP_MODE="${SOCKS5_UDP_MODE:-udp}"
 OTHER_ROUTE="${OTHER_ROUTE:-}"
 LOG_LEVEL="${LOG_LEVEL:-warn}"
-IFACE="${IFACE:-eth0}"
 
-# Single, deterministic gateway lookup: first matching line only.
-GATEWAY="${GATEWAY:-$(ip route | awk -v i="$IFACE" '$0 ~ /^default/ && $0 ~ i {print $3; exit}')}"
+GATEWAY="${GATEWAY:-$(ip route | awk '/^default/ {print $3; exit}')}"
+IFACE="${IFACE:-$(ip route | awk '/^default/ {print $5; exit}')}"
 
 if [ -z "${GATEWAY:-}" ]; then
   echo "ERROR: could not determine default gateway for interface '${IFACE}'." >&2
-  echo "       Set GATEWAY explicitly (e.g. GATEWAY=192.168.1.1) or IFACE if not eth0." >&2
+  echo "       Set GATEWAY explicitly (e.g. GATEWAY=192.168.1.1) or IFACE." >&2
   exit 1
 fi
 
